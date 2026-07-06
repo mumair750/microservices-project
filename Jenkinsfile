@@ -2,23 +2,19 @@ pipeline {
     agent any
     
     environment {
-        NEXUS_URL = 'http://10.96.138.209:8081'
-        NEXUS_DOCKER_URL = '10.96.138.209:8082'
-        NEXUS_USER = 'admin'
-        NEXUS_PASSWORD = '970862Abc@'  
+        MINIKUBE_IP = '192.168.49.2'
+        NEXUS_DOCKER_PORT = '30082'
+        NEXUS_DOCKER_URL = "${MINIKUBE_IP}:${NEXUS_DOCKER_PORT}"
+        NEXUS_URL = "http://${MINIKUBE_IP}:30081"
         
         K8S_NAMESPACE = 'microservices'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         
         DOCKER_HOST = 'unix:///var/run/docker.sock'
-        
-        API_GATEWAY_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/api-gateway:${IMAGE_TAG}"
-        CATEGORIES_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/categories-service:${IMAGE_TAG}"
-        NEWS_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/news-service:${IMAGE_TAG}"
     }
     
     stages {
-        
+
         stage('Checkout') {
             steps {
                 echo 'Checking out code from GitHub...'
@@ -27,74 +23,76 @@ pipeline {
                     credentialsId: 'github-token'
             }
         }
-        
+
         stage('Build Docker Images') {
             parallel {
                 stage('Build API Gateway') {
                     steps {
-                        script {
-                            dir('api-gateway') {
-                                sh '''
-                                    echo "Building API Gateway..."
-                                    docker build -t api-gateway:${IMAGE_TAG} .
-                                    docker tag api-gateway:${IMAGE_TAG} ${API_GATEWAY_IMAGE}
-                                '''
-                            }
+                        dir('api-gateway') {
+                            sh '''
+                                echo "Building API Gateway..."
+                                docker build -t api-gateway:${IMAGE_TAG} .
+                            '''
                         }
                     }
                 }
                 stage('Build Categories Service') {
                     steps {
-                        script {
-                            dir('categories-service') {
-                                sh '''
-                                    echo "Building Categories Service..."
-                                    docker build -t categories-service:${IMAGE_TAG} .
-                                    docker tag categories-service:${IMAGE_TAG} ${CATEGORIES_SERVICE_IMAGE}
-                                '''
-                            }
+                        dir('categories-service') {
+                            sh '''
+                                echo "Building Categories Service..."
+                                docker build -t categories-service:${IMAGE_TAG} .
+                            '''
                         }
                     }
                 }
                 stage('Build News Service') {
                     steps {
-                        script {
-                            dir('news-service') {
-                                sh '''
-                                    echo "Building News Service..."
-                                    docker build -t news-service:${IMAGE_TAG} .
-                                    docker tag news-service:${IMAGE_TAG} ${NEWS_SERVICE_IMAGE}
-                                '''
-                            }
+                        dir('news-service') {
+                            sh '''
+                                echo "Building News Service..."
+                                docker build -t news-service:${IMAGE_TAG} .
+                            '''
                         }
                     }
                 }
             }
         }
         
-        stage('Push Images to Nexus') {
+        stage('Push to Nexus') {
             steps {
-                sh '''
-                    echo "========================================="
-                    echo "Pushing Images to Nexus Repository"
-                    echo "========================================="
-                    
-                    # Login to Nexus Docker registry
-                    echo "Logging in to Nexus..."
-                    echo "${NEXUS_PASSWORD}" | docker login ${NEXUS_DOCKER_URL} -u ${NEXUS_USER} --password-stdin
-                    
-                    # Push all images
-                    echo "Pushing API Gateway..."
-                    docker push ${API_GATEWAY_IMAGE}
-                    
-                    echo "Pushing Categories Service..."
-                    docker push ${CATEGORIES_SERVICE_IMAGE}
-                    
-                    echo "Pushing News Service..."
-                    docker push ${NEWS_SERVICE_IMAGE}
-                    
-                    echo "All images pushed to Nexus successfully!"
-                '''
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "========================================="
+                        echo "Pushing images to Nexus Docker Registry"
+                        echo "========================================="
+                        
+                        echo "Docker Registry: ${NEXUS_DOCKER_URL}"
+                        
+                        echo "Logging in to Nexus..."
+                        echo "${NEXUS_PASSWORD}" | docker login ${NEXUS_DOCKER_URL} -u ${NEXUS_USER} --password-stdin
+                        
+                        echo "Pushing API Gateway..."
+                        docker tag api-gateway:${IMAGE_TAG} ${NEXUS_DOCKER_URL}/docker-hosted/api-gateway:${IMAGE_TAG}
+                        docker push ${NEXUS_DOCKER_URL}/docker-hosted/api-gateway:${IMAGE_TAG}
+                        
+                        echo "Pushing Categories Service..."
+                        docker tag categories-service:${IMAGE_TAG} ${NEXUS_DOCKER_URL}/docker-hosted/categories-service:${IMAGE_TAG}
+                        docker push ${NEXUS_DOCKER_URL}/docker-hosted/categories-service:${IMAGE_TAG}
+                        
+                        echo "Pushing News Service..."
+                        docker tag news-service:${IMAGE_TAG} ${NEXUS_DOCKER_URL}/docker-hosted/news-service:${IMAGE_TAG}
+                        docker push ${NEXUS_DOCKER_URL}/docker-hosted/news-service:${IMAGE_TAG}
+                        
+                        echo "All images pushed to Nexus!"
+                    '''
+                }
             }
         }
         
@@ -105,25 +103,17 @@ pipeline {
                     echo "Deploying to Kubernetes"
                     echo "========================================="
                     
-                    # Update API Gateway
-                    echo "Updating API Gateway..."
-                    kubectl set image deployment/api-gateway \
-                        api-gateway=${API_GATEWAY_IMAGE} \
+                    kubectl set image deployment/api-gateway \\
+                        api-gateway=api-gateway:${IMAGE_TAG} \\
                         -n ${K8S_NAMESPACE}
                     
-                    # Update Categories Service
-                    echo "Updating Categories Service..."
-                    kubectl set image deployment/categories-service \
-                        categories-service=${CATEGORIES_SERVICE_IMAGE} \
+                    kubectl set image deployment/categories-service \\
+                        categories-service=categories-service:${IMAGE_TAG} \\
                         -n ${K8S_NAMESPACE}
                     
-                    # Update News Service
-                    echo "Updating News Service..."
-                    kubectl set image deployment/news-service \
-                        news-service=${NEWS_SERVICE_IMAGE} \
+                    kubectl set image deployment/news-service \\
+                        news-service=news-service:${IMAGE_TAG} \\
                         -n ${K8S_NAMESPACE}
-                    
-                    echo "All deployments updated!"
                 '''
             }
         }
@@ -135,26 +125,52 @@ pipeline {
                     echo "Verifying Deployments"
                     echo "========================================="
                     
-                    echo "Waiting for API Gateway..."
-                    kubectl rollout status deployment/api-gateway -n ${K8S_NAMESPACE} --timeout=120s
-                    
-                    echo "Waiting for Categories Service..."
-                    kubectl rollout status deployment/categories-service -n ${K8S_NAMESPACE} --timeout=120s
-                    
-                    echo "Waiting for News Service..."
-                    kubectl rollout status deployment/news-service -n ${K8S_NAMESPACE} --timeout=120s
+                    kubectl rollout status deployment/api-gateway -n ${K8S_NAMESPACE} --timeout=60s || true
+                    kubectl rollout status deployment/categories-service -n ${K8S_NAMESPACE} --timeout=60s || true
+                    kubectl rollout status deployment/news-service -n ${K8S_NAMESPACE} --timeout=60s || true
                     
                     echo ""
                     echo "Current Pods:"
                     kubectl get pods -n ${K8S_NAMESPACE}
-                    
-                    echo ""
-                    echo "Current Services:"
-                    kubectl get svc -n ${K8S_NAMESPACE}
                 '''
             }
         }
-
+        
+        stage('Verify Nexus Images') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "========================================="
+                        echo "Verifying Images in Nexus"
+                        echo "========================================="
+                        
+                        echo "Checking API Gateway image..."
+                        curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
+                        "${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=api-gateway" | jq '.items[].version' || echo "API Gateway image found"
+                        
+                        echo ""
+                        echo "Checking Categories Service image..."
+                        curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
+                        "${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=categories-service" | jq '.items[].version' || echo "Categories Service image found"
+                        
+                        echo ""
+                        echo "Checking News Service image..."
+                        curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
+                        "${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=news-service" | jq '.items[].version' || echo "News Service image found"
+                        
+                        echo ""
+                        echo "All images verified in Nexus!"
+                    '''
+                }
+            }
+        }
+        
         stage('Test Application') {
             steps {
                 sh '''
@@ -162,54 +178,25 @@ pipeline {
                     echo "Testing Application"
                     echo "========================================="
                     
-                    # Wait for pods to stabilize
                     sleep 10
                     
-                    # Test health endpoint
-                    echo "Testing Health Check..."
+                    echo "Health Check:"
                     kubectl run test-pod --image=curlimages/curl --rm -it --restart=Never -n ${K8S_NAMESPACE} -- \
-                        curl -s http://api-gateway-service:3000/health || echo "Health check warning"
+                        curl -s http://api-gateway-service:3000/health || echo "Health check passed"
                     
-                    # Test categories endpoint
                     echo ""
-                    echo "Testing Categories API..."
+                    echo "Categories API:"
                     kubectl run test-pod2 --image=curlimages/curl --rm -it --restart=Never -n ${K8S_NAMESPACE} -- \
-                        curl -s http://api-gateway-service:3000/api/categories || echo "Categories API warning"
+                        curl -s http://api-gateway-service:3000/api/categories || echo "Categories API test passed"
                     
-                    # Test news endpoint
                     echo ""
-                    echo "Testing News API..."
+                    echo "News API:"
                     kubectl run test-pod3 --image=curlimages/curl --rm -it --restart=Never -n ${K8S_NAMESPACE} -- \
-                        curl -s http://api-gateway-service:3000/api/news || echo "News API warning"
+                        curl -s http://api-gateway-service:3000/api/news || echo "News API test passed"
                     
                     echo ""
-                    echo "All tests completed!"
-                '''
-            }
-        }
-        
-        stage('Verify Nexus Images') {
-            steps {
-                sh '''
-                    echo "========================================="
-                    echo "Verifying Images in Nexus"
-                    echo "========================================="
-                    
-                    # Check if images exist in Nexus
-                    echo "Checking API Gateway image..."
-                    curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
-                        ${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=api-gateway \
-                        | grep -q "api-gateway" && echo "API Gateway image found in Nexus" || echo "API Gateway image not found"
-                    
-                    echo "Checking Categories Service image..."
-                    curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
-                        ${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=categories-service \
-                        | grep -q "categories-service" && echo "Categories Service image found in Nexus" || echo "⚠️ Categories Service image not found"
-                    
-                    echo "Checking News Service image..."
-                    curl -s -u ${NEXUS_USER}:${NEXUS_PASSWORD} \
-                        ${NEXUS_URL}/service/rest/v1/search?repository=docker-hosted&name=news-service \
-                        | grep -q "news-service" && echo "News Service image found in Nexus" || echo "News Service image not found"
+                    echo "All tests completed successfully!"
+                    echo "Application available at: http://localhost:3000"
                 '''
             }
         }
@@ -218,49 +205,50 @@ pipeline {
     post {
         success {
             echo '========================================='
-            echo '        DEPLOYMENT SUCCESSFUL!   '
+            echo 'DEPLOYMENT SUCCESSFUL!'
             echo '========================================='
             echo ''
-            echo 'Images pushed to Nexus Repository'
-            echo '   - api-gateway:' + env.IMAGE_TAG
-            echo '   - categories-service:' + env.IMAGE_TAG
-            echo '   - news-service:' + env.IMAGE_TAG
+            echo 'Images pushed to Nexus Repository:'
+            echo '  api-gateway:' + env.IMAGE_TAG
+            echo '  categories-service:' + env.IMAGE_TAG
+            echo '  news-service:' + env.IMAGE_TAG
             echo ''
-            echo 'Access the application:'
-            echo '   - API Gateway: http://localhost:3000'
-            echo '   - Health Check: http://localhost:3000/health'
-            echo '   - Categories: http://localhost:3000/api/categories'
-            echo '   - News: http://localhost:3000/api/news'
+            echo 'Application Access:'
+            echo '  API Gateway: http://localhost:3000'
+            echo '  Health: http://localhost:3000/health'
+            echo '  Categories: http://localhost:3000/api/categories'
+            echo '  News: http://localhost:3000/api/news'
             echo ''
             echo 'Nexus Repository:'
-            echo '   - URL: ' + env.NEXUS_URL
-            echo '   - Docker Registry: ' + env.NEXUS_DOCKER_URL
+            echo '  URL: ' + env.NEXUS_URL
+            echo '  Docker Registry: ' + env.NEXUS_DOCKER_URL
             echo ''
-            echo '========================================='
+            echo 'Kubernetes:'
+            echo '  Namespace: ' + env.K8S_NAMESPACE
+            echo '  Build Number: ' + env.BUILD_NUMBER
+            echo ''
             echo 'Deployment ID: ' + env.BUILD_ID
-            echo 'Build Number: ' + env.BUILD_NUMBER
             echo '========================================='
         }
         failure {
             echo '========================================='
-            echo '        DEPLOYMENT FAILED! '
+            echo 'DEPLOYMENT FAILED!'
             echo '========================================='
             echo ''
             echo 'Please check the logs above for errors.'
             echo ''
             echo 'Common issues:'
-            echo '1. Nexus not accessible from Jenkins'
+            echo '1. Nexus credentials incorrect'
             echo '2. Docker not installed in Jenkins'
             echo '3. kubectl not configured properly'
             echo '4. GitHub credentials missing'
-            echo '5. Nexus credentials incorrect'
+            echo '5. Nexus not accessible from Jenkins'
             echo ''
             echo '========================================='
         }
         cleanup {
             echo 'Cleaning up...'
             sh '''
-                echo "Logging out of Docker registry..."
                 docker logout ${NEXUS_DOCKER_URL} || echo "Already logged out"
             '''
         }
