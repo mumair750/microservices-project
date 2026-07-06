@@ -12,9 +12,9 @@ pipeline {
         
         DOCKER_HOST = 'unix:///var/run/docker.sock'
         
-        API_GATEWAY_IMAGE = "${NEXUS_DOCKER_URL}/api-gateway:${IMAGE_TAG}"
-        CATEGORIES_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/categories-service:${IMAGE_TAG}"
-        NEWS_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/news-service:${IMAGE_TAG}"
+        API_GATEWAY_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/api-gateway:${IMAGE_TAG}"
+        CATEGORIES_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/categories-service:${IMAGE_TAG}"
+        NEWS_SERVICE_IMAGE = "${NEXUS_DOCKER_URL}/docker-hosted/news-service:${IMAGE_TAG}"
     }
     
     stages {
