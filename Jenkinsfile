@@ -2,8 +2,8 @@ pipeline {
     agent any
     
     environment {
-        NEXUS_URL = 'http://nexus-service.nexus:8081'
-        NEXUS_DOCKER_URL = 'nexus-service.nexus:8082'
+        NEXUS_URL = 'http://10.96.138.209:8081'
+        NEXUS_DOCKER_URL = '10.96.138.209:8082'
         NEXUS_USER = 'admin'
         NEXUS_PASSWORD = '970862Abc@'  
         
