@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: microservices
+data:
+  init.sql: |
+    -- Create categories table
+    CREATE TABLE IF NOT EXISTS categories (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Create news table
+    CREATE TABLE IF NOT EXISTS news (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR(200) NOT NULL,
+      content TEXT,
+      category_id INTEGER REFERENCES categories(id),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Insert sample data
+    INSERT INTO categories (name, description) VALUES 
+      ('Technology', 'Latest tech news and innovations'),
+      ('Sports', 'Sports updates and events'),
+      ('Business', 'Business and finance insights'),
+      ('Science', 'Scientific discoveries and research')
+    ON CONFLICT (name) DO NOTHING;
+    
+    INSERT INTO news (title, content, category_id) VALUES 
+      ('Welcome to News Service', 'This is the first news article', 1),
+      ('AWS Launches New Service', 'Amazon Web Services announced a new service...', 1),
+      ('Championship Final Results', 'The championship final ended with...', 2)
+    ON CONFLICT DO NOTHING;
