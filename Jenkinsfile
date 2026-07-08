@@ -2,13 +2,15 @@ pipeline {
     agent any
     
     environment {
-        NEXUS_URL = 'http://nexus-service.nexus.svc.cluster.local:8081'
-        NEXUS_DOCKER_URL = 'nexus-service.nexus.svc.cluster.local:8082'
-        NEXUS_REPOSITORY = 'docker-hosted'
-        K8S_NAMESPACE = 'microservices'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        DOCKER_HOST = 'unix:///var/run/docker.sock'
-    }
+
+    MINIKUBE_IP = '192.168.49.2'
+    NEXUS_URL = "http://${MINIKUBE_IP}:30081"
+    NEXUS_DOCKER_URL = "${MINIKUBE_IP}:30082"
+    NEXUS_REPOSITORY = 'docker-hosted'
+    K8S_NAMESPACE = 'microservices'
+    IMAGE_TAG = "${BUILD_NUMBER}"
+    DOCKER_HOST = 'unix:///var/run/docker.sock'
+}
     
     stages {
         stage('Checkout') {
